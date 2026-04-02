@@ -1,11 +1,11 @@
-FROM golang:1.20 AS builder
+FROM golang:1.25 AS builder
 
 # download dependencies
 WORKDIR /go/src/app
 COPY src/app/go.mod src/app/go.sum /go/src/app/
 RUN go mod download && go mod verify
 
-ENV GOFLAGS -tags=netgo
+ENV GOFLAGS="-tags=netgo"
 
 # build the app
 COPY src/app /go/src/app
