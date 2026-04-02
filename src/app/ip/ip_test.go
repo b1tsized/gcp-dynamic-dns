@@ -32,12 +32,12 @@ func ExternalServiceIPSpec() {
 		})
 	})
 	Convey("error: response contains no IP", func() {
-		ip, err := ExternalServiceIP("https://httpstat.us/200")
-		So(err, ShouldBeError, "the response did not contain an IP address: 200 OK")
+		ip, err := ExternalServiceIP("https://httpbin.org/status/200")
+		So(err, ShouldBeError, "the response did not contain an IP address: ")
 		So(ip, ShouldEqual, "")
 	})
 	Convey("error: non-OK status code", func() {
-		ip, err := ExternalServiceIP("https://httpstat.us/500")
+		ip, err := ExternalServiceIP("https://httpbin.org/status/500")
 		So(err, ShouldBeError, `the server returned status 500 Internal Server Error`)
 		So(ip, ShouldEqual, "")
 	})

@@ -5,15 +5,15 @@
 package gcloud
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/dns/v1"
 	"log"
 	"os"
 	"reflect"
 	"strings"
+
+	"google.golang.org/api/dns/v1"
+	"google.golang.org/api/option"
 )
 
 type Client struct {
@@ -23,19 +23,16 @@ type Client struct {
 }
 
 func Configure(project string) *Client {
-	googleApplicationCredentials := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	if googleApplicationCredentials == "" {
-		log.Fatal("Environment variable GOOGLE_APPLICATION_CREDENTIALS not set. " +
-			"See https://cloud.google.com/docs/authentication/production for instructions.")
-	}
-
-	ctx := context.Background()
-	client, err := google.DefaultClient(ctx, dns.CloudPlatformScope)
-	if err != nil {
+	// Support two authentication methods:
+	// 1. GOOGLE_CREDENTIALS_JSON - JSON content directly in env var
+	// 2. GOOGLE_APPLICATION_CREDENTIALS - path to JSON file
+	if err := setupCredentials(); err != nil {
 		log.Fatal(err)
 	}
 
-	dnsService, err := dns.New(client)
+	ctx := context.Background()
+	dnsService, err := dns.NewService(ctx,
+		option.WithScopes(dns.NdevClouddnsReadwriteScope))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,19 +44,57 @@ func Configure(project string) *Client {
 	}
 }
 
-func (this *Client) DnsRecordsByNameAndType(names []string, recordType string) (DnsRecords, error) {
-	records, err := this.DnsRecords()
+// setupCredentials configures GCP authentication from environment variables.
+// Supports GOOGLE_CREDENTIALS_JSON (JSON content) or GOOGLE_APPLICATION_CREDENTIALS (file path).
+func setupCredentials() error {
+	// Check if credentials JSON is provided directly
+	credentialsJSON := os.Getenv("GOOGLE_CREDENTIALS_JSON")
+	if credentialsJSON != "" {
+		// Write JSON to temp file and set GOOGLE_APPLICATION_CREDENTIALS
+		tmpFile, err := os.CreateTemp("", "gcp-credentials-*.json")
+		if err != nil {
+			return fmt.Errorf("failed to create temp credentials file: %w", err)
+		}
+		if _, err := tmpFile.WriteString(credentialsJSON); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return fmt.Errorf("failed to write credentials to temp file: %w", err)
+		}
+		if err := tmpFile.Close(); err != nil {
+			os.Remove(tmpFile.Name())
+			return fmt.Errorf("failed to close temp credentials file: %w", err)
+		}
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", tmpFile.Name())
+		log.Printf("Using credentials from GOOGLE_CREDENTIALS_JSON environment variable")
+		return nil
+	}
+
+	// Fall back to file-based credentials
+	googleApplicationCredentials := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if googleApplicationCredentials == "" {
+		return fmt.Errorf("no GCP credentials configured. Set either:\n" +
+			"  - GOOGLE_CREDENTIALS_JSON: JSON content of service account key\n" +
+			"  - GOOGLE_APPLICATION_CREDENTIALS: path to service account JSON file\n" +
+			"See https://cloud.google.com/docs/authentication/production for instructions")
+	}
+
+	log.Printf("Using credentials from file: %s", googleApplicationCredentials)
+	return nil
+}
+
+func (c *Client) DnsRecordsByNameAndType(names []string, recordType string) (DnsRecords, error) {
+	records, err := c.DnsRecords()
 	if err != nil {
 		return nil, err
 	}
 	found := filterDnsRecordsByName(records, names)
 	found = filterDnsRecordsByType(found, recordType)
 	if len(found) != len(names) {
-		return nil, errors.New(fmt.Sprintf("Expected DNS records <%v> of type <%v>, but only found <%v> of them from the available <%v>",
+		return nil, fmt.Errorf("expected DNS records <%v> of type <%v>, but only found <%v> of them from the available <%v>",
 			strings.Join(names, ", "),
 			recordType,
 			strings.Join(found.NamesAndTypes(), ", "),
-			strings.Join(records.NamesAndTypes(), ", ")))
+			strings.Join(records.NamesAndTypes(), ", "))
 	}
 	return found, nil
 }
@@ -96,14 +131,14 @@ func filterDnsRecordsByType(records DnsRecords, recordType string) DnsRecords {
 	return results
 }
 
-func (this *Client) DnsRecords() (DnsRecords, error) {
-	zones, err := this.ManagedZones()
+func (c *Client) DnsRecords() (DnsRecords, error) {
+	zones, err := c.ManagedZones()
 	if err != nil {
 		return nil, err
 	}
 	var records DnsRecords
 	for _, zone := range zones {
-		rrsets, err := this.ResourceRecordSets(zone.Name)
+		rrsets, err := c.ResourceRecordSets(zone.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -116,37 +151,33 @@ func (this *Client) DnsRecords() (DnsRecords, error) {
 	return records, nil
 }
 
-func (this *Client) ManagedZones() ([]*dns.ManagedZone, error) {
+func (c *Client) ManagedZones() ([]*dns.ManagedZone, error) {
 	var results []*dns.ManagedZone
-	err := this.dnsService.ManagedZones.List(this.project).Pages(this.context, func(page *dns.ManagedZonesListResponse) error {
-		for _, zone := range page.ManagedZones {
-			results = append(results, zone)
-		}
+	err := c.dnsService.ManagedZones.List(c.project).Pages(c.context, func(page *dns.ManagedZonesListResponse) error {
+		results = append(results, page.ManagedZones...)
 		return nil
 	})
 	return results, err
 }
 
-func (this *Client) ResourceRecordSets(managedZone string) ([]*dns.ResourceRecordSet, error) {
+func (c *Client) ResourceRecordSets(managedZone string) ([]*dns.ResourceRecordSet, error) {
 	var results []*dns.ResourceRecordSet
-	req := this.dnsService.ResourceRecordSets.List(this.project, managedZone)
-	err := req.Pages(this.context, func(page *dns.ResourceRecordSetsListResponse) error {
-		for _, rrset := range page.Rrsets {
-			results = append(results, rrset)
-		}
+	req := c.dnsService.ResourceRecordSets.List(c.project, managedZone)
+	err := req.Pages(c.context, func(page *dns.ResourceRecordSetsListResponse) error {
+		results = append(results, page.Rrsets...)
 		return nil
 	})
 	return results, err
 }
 
-func (this *Client) UpdateDnsRecords(records DnsRecords, newValues []string) (DnsRecords, error) {
+func (c *Client) UpdateDnsRecords(records DnsRecords, newValues []string) (DnsRecords, error) {
 	var updated DnsRecords
 	for managedZone, recordsInZone := range records.GroupByZone() {
 		plannedChanges := changesToUpdateDnsRecordValues(recordsInZone, newValues)
 		if plannedChanges == nil {
 			continue
 		}
-		doneChanges, err := this.dnsService.Changes.Create(this.project, managedZone, plannedChanges).Context(this.context).Do()
+		doneChanges, err := c.dnsService.Changes.Create(c.project, managedZone, plannedChanges).Context(c.context).Do()
 		if err != nil {
 			return nil, err
 		}

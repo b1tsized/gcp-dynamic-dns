@@ -50,7 +50,10 @@ func OutgoingIP() (string, error) {
 	}
 	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", errors.New("unexpected address type")
+	}
 	ip := localAddr.IP.String()
 	return ip, nil
 }
@@ -66,7 +69,11 @@ func InterfaceIP(name string) (string, error) {
 	}
 	for _, addr := range addrs {
 		// an interface may have multiple addresses, but we're interested only in the IPv4 address, not IPv6 addresses
-		ip4 := addr.(*net.IPNet).IP.To4()
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip4 := ipNet.IP.To4()
 		if ip4 != nil {
 			return ip4.String(), nil
 		}

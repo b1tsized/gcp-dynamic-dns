@@ -1,2 +1,10 @@
+# Build artifacts
 /app
 *.tmp
+
+# IDE
+.idea/
+*.iml
+
+# Claude Code
+.claude/

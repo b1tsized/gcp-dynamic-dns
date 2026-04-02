@@ -1,105 +1,311 @@
 # Google Cloud Dynamic DNS Client
 
-Syncs the current IP address to Google Cloud DNS records. Can discover your public IP based on
-(1) a 3rd party web service, (2) directly from the local network interface, or (3) the network router using UPnP.
+[![CI](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/ci.yml/badge.svg)](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/ci.yml)
+[![Release](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/release.yml/badge.svg)](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/release.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/b1tsized/gcp-dynamic-dns)](https://hub.docker.com/r/b1tsized/gcp-dynamic-dns)
+[![Docker Image Version](https://img.shields.io/docker/v/b1tsized/gcp-dynamic-dns?sort=semver)](https://hub.docker.com/r/b1tsized/gcp-dynamic-dns)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/b1tsized/gcp-dynamic-dns)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.txt)
 
-Works only for IPv4 addresses.
+> **Note**: This is an actively maintained fork of [luontola/gcp-dynamic-dns](https://github.com/luontola/gcp-dynamic-dns) with updated dependencies and modernized GCP SDK.
 
-This project is distributed [as a Docker image](https://hub.docker.com/r/luontola/gcp-dynamic-dns).
-(Or if you're familiar with [Golang](https://go.dev/), you may build
-it [from source](https://github.com/luontola/gcp-dynamic-dns) yourself.)
+Automatically sync your public IP address to [Google Cloud DNS](https://cloud.google.com/dns) records. Perfect for home servers, self-hosted services, and dynamic IP environments.
 
-## Using
+## Features
 
-Run this application's [container](https://hub.docker.com/r/luontola/gcp-dynamic-dns) using the command `sync` and
-restart policy `always`. That will sync the IP address automatically whenever it changes.
+- **Multiple IP Detection Methods**
+  - External web service (default)
+  - Local network interface
+  - Router via UPnP
+- **Flexible Authentication**
+  - Environment variable (JSON string)
+  - Mounted credentials file
+- **Lightweight**
+  - Minimal Docker image (~10MB)
+  - Single static binary
+- **Multi-Architecture**
+  - `linux/amd64`
+  - `linux/arm64`
 
-At minimum, configure the environment variables `DNS_NAMES`, `GOOGLE_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`.
-If you change the `MODE` from its default, you'll also need to set the container's network mode to `host`.
+---
 
-For a list of other commands, run the `help` command.
+## Table of Contents
 
-### Example [Docker Compose](https://docs.docker.com/compose/) configuration
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+  - [Docker Compose](#docker-compose)
+  - [UnRaid](#unraid)
+- [Configuration](#configuration)
+  - [Authentication](#authentication)
+  - [Environment Variables](#environment-variables)
+- [GCP Setup](#gcp-setup)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
 
-```yaml
-version: '2.4'
-services:
-  dyndns:
-    image: luontola/gcp-dynamic-dns:1.5
-    command: sync
-    network_mode: host
-    environment:
-      DNS_NAMES: example.com. www.example.com.
-      GOOGLE_PROJECT: example-123456
-      GOOGLE_APPLICATION_CREDENTIALS: /gcp-keys.json
-    volumes:
-      - /path/to/gcp-dns-admin-keys.json:/gcp-keys.json:ro
-    restart: always
+---
+
+## Quick Start
+
+```bash
+docker run -d \
+  --name gcp-dynamic-dns \
+  --network host \
+  --restart always \
+  -e DNS_NAMES="example.com." \
+  -e GOOGLE_PROJECT="your-project-id" \
+  -e GOOGLE_CREDENTIALS_JSON='{"type":"service_account",...}' \
+  b1tsized/gcp-dynamic-dns sync
 ```
 
-### Environment variables
+---
 
-#### `MODE` (optional)
+## Installation
 
-The method for determining your public IP address. Possible values:
+### Docker Compose
 
-- `service` (default) - Asks a 3rd party web service for your external IP address.
-- `interface` - Asks your operating system for the IP address assigned to a network interface.
-- `upnp` - Asks your network router for its external IP address using Universal Plug and Play.
-    - Not every router has UPnP enabled and a firewall may block it as well, so to debug issues, first check
-      if [`upnpc -s`](https://miniupnp.tuxfamily.org/) reports the ExternalIPAddress.
+```yaml
+services:
+  dyndns:
+    image: b1tsized/gcp-dynamic-dns
+    container_name: gcp-dynamic-dns
+    command: sync
+    network_mode: host
+    restart: always
+    environment:
+      DNS_NAMES: example.com. www.example.com.
+      GOOGLE_PROJECT: your-project-123456
+      # Option 1: Credentials as JSON string (recommended)
+      GOOGLE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"..."}'
+      # Option 2: Credentials as file
+      # GOOGLE_APPLICATION_CREDENTIALS: /gcp-keys.json
+    # volumes:
+    #   - ./gcp-keys.json:/gcp-keys.json:ro
+```
 
-Default: `service`
+### UnRaid
 
-#### `SERVICE_URLS` (optional, MODE=service)
+<details>
+<summary>Click to expand UnRaid installation guide</summary>
 
-Web addresses of services which report your public IP address. Multiple services may be separated by space, in which
-case they will be used in a round-robin fashion. The continuous check interval is 5 minutes, so use more than once
-service to call each individual service less often.
+#### Adding the Container
 
-Default: `https://ipv4.icanhazip.com/ https://checkip.amazonaws.com/ https://ifconfig.me/ip https://ipinfo.io/ip`
+1. In UnRaid's **Docker** tab, click **Add Container**
+2. Configure:
 
-#### `INTERFACE_NAME` (optional, MODE=interface)
+| Field | Value |
+|-------|-------|
+| **Name** | `gcp-dynamic-dns` |
+| **Repository** | `b1tsized/gcp-dynamic-dns` |
+| **Network Type** | `host` |
+| **Post Arguments** | `sync` |
+| **Restart Policy** | `always` |
 
-Name of the network interface whose IP to use. If not defined, the program will detect the primary network interface
-automatically.
+#### Environment Variables
 
-Example: `eth0`
+| Variable | Value |
+|----------|-------|
+| `DNS_NAMES` | `yourdomain.com.` (must end with `.`) |
+| `GOOGLE_PROJECT` | Your GCP project ID |
+| `GOOGLE_CREDENTIALS_JSON` | Your service account JSON |
 
-#### `DNS_NAMES`
+#### Verifying It Works
 
-List of domain names to update. Separate the domain names with one space. Each name must end with a period. The DNS
-records must already exist on Cloud DNS and they must be type `A` records.
+Check the container logs. You should see:
 
-Example: `example.com. subdomain.example.com. example.org.`
+```
+Using credentials from GOOGLE_CREDENTIALS_JSON environment variable
+Current IP: 203.0.113.42
+Updated DNS: example.com. A -> 203.0.113.42
+```
 
-#### `GOOGLE_PROJECT`
+</details>
 
-The name of your Google Cloud project. The above mentioned DNS names must be hosted under this project's Cloud DNS.
+---
 
-Example: `your-project-123456`
+## Configuration
 
-#### `GOOGLE_APPLICATION_CREDENTIALS`
+### Authentication
 
-Path to service account credentials with permissions to update your Cloud DNS records.
+Two methods are supported for GCP credentials:
 
-Example: `/path/to/dns-updater-gcp-keys.json`
+#### Option 1: Environment Variable (Recommended)
 
-> In the GCP console, under **IAM & admin > Service accounts**, create a service account for the application. Name
-> it `dns-updater`, grant it the **DNS > DNS Administrator** role, create a key for it in JSON format and save it
-> as `dns-updater-gcp-keys.json`.
+Pass the entire service account JSON as an environment variable:
 
-## Developing
+```yaml
+environment:
+  GOOGLE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"...","private_key":"..."}'
+```
 
-Run tests and build the project
+**Pros**: No file mounts, works great with container orchestrators
 
-    docker-compose build --force-rm
+#### Option 2: File Mount
 
-Run the application
+Mount the JSON key file into the container:
 
-    docker-compose run --rm app help
+```yaml
+environment:
+  GOOGLE_APPLICATION_CREDENTIALS: /gcp-keys.json
+volumes:
+  - /path/to/credentials.json:/gcp-keys.json:ro
+```
 
-The application container doesn't have `sh` or other fancy stuff,
-so to inspect its contents use the `docker export` command:
+### Environment Variables
 
-    docker export <container> | tar tv
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DNS_NAMES` | Yes | - | Space-separated DNS names (must end with `.`) |
+| `GOOGLE_PROJECT` | Yes | - | GCP project ID |
+| `GOOGLE_CREDENTIALS_JSON` | * | - | Service account JSON content |
+| `GOOGLE_APPLICATION_CREDENTIALS` | * | - | Path to credentials file |
+| `MODE` | No | `service` | IP detection mode (see below) |
+| `SERVICE_URLS` | No | [see below] | Custom IP detection URLs |
+| `INTERFACE_NAME` | No | auto | Network interface name |
+
+\* One of `GOOGLE_CREDENTIALS_JSON` or `GOOGLE_APPLICATION_CREDENTIALS` is required
+
+#### IP Detection Modes
+
+| Mode | Description |
+|------|-------------|
+| `service` | Query external web services (default) |
+| `interface` | Read from local network interface |
+| `upnp` | Query router via UPnP protocol |
+
+> **Note**: Modes `interface` and `upnp` require `network_mode: host`
+
+#### Default Service URLs
+
+```
+https://ipv4.icanhazip.com/
+https://checkip.amazonaws.com/
+https://ifconfig.me/ip
+https://ipinfo.io/ip
+```
+
+Services are queried in round-robin fashion every 5 minutes.
+
+---
+
+## GCP Setup
+
+1. Go to [GCP Console → IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+
+2. **Create a service account**
+   - Name: `dns-updater`
+   - Role: **DNS Administrator** (`roles/dns.admin`)
+
+3. **Create a JSON key**
+   - Click on the service account
+   - Keys → Add Key → Create new key → JSON
+   - Download and save securely
+
+4. **Ensure DNS records exist**
+   - Records must already exist in Cloud DNS
+   - Must be type `A` records
+   - Names must end with `.` (e.g., `example.com.`)
+
+---
+
+## Development
+
+### Prerequisites
+
+- [Go 1.25+](https://go.dev/dl/)
+- [Docker](https://www.docker.com/get-started)
+
+### Local Development
+
+```bash
+# Run tests
+cd src/app
+go test -v ./...
+
+# Build binary
+go build -o ../../app
+
+# Run locally
+DNS_NAMES="example.com." GOOGLE_PROJECT="test" ./app list-ip
+```
+
+### Docker Build
+
+```bash
+# Build image
+docker build -t b1tsized/gcp-dynamic-dns .
+
+# Test container
+docker run --rm b1tsized/gcp-dynamic-dns help
+```
+
+### CI/CD
+
+| Workflow | Trigger | Action |
+|----------|---------|--------|
+| **CI** | Push/PR to `main` | Run tests, build |
+| **Release** | GitHub Release | Build & push to Docker Hub |
+
+### Creating a Release
+
+1. Go to [Releases](../../releases) → **Create a new release**
+2. Create tag: `v2.0.0` (semantic versioning)
+3. Click **Publish release**
+
+The workflow automatically builds multi-arch images and pushes:
+- `b1tsized/gcp-dynamic-dns:latest`
+- `b1tsized/gcp-dynamic-dns:2.0.0`
+- `b1tsized/gcp-dynamic-dns:2.0`
+- `b1tsized/gcp-dynamic-dns:2`
+
+### Repository Secrets
+
+Required for releases:
+
+| Secret | Description |
+|--------|-------------|
+| `DOCKERHUB_USERNAME` | Docker Hub username |
+| `DOCKERHUB_TOKEN` | [Docker Hub access token](https://hub.docker.com/settings/security) |
+
+---
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## Changes from Upstream
+
+This fork includes:
+
+- Updated to **Go 1.25**
+- Updated all dependencies to latest versions
+- Modernized GCP SDK (`dns.NewService()` instead of deprecated `dns.New()`)
+- Narrower OAuth scope (`NdevClouddnsReadwriteScope`)
+- **New**: `GOOGLE_CREDENTIALS_JSON` environment variable support
+- **New**: Multi-architecture Docker images (amd64/arm64)
+- **New**: GitHub Actions CI/CD
+- Code quality improvements
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE.txt)
+
+Original work Copyright © 2023 [Esko Luontola](https://github.com/luontola)
+
+---
+
+<p align="center">
+  <a href="https://github.com/b1tsized/gcp-dynamic-dns/issues">Report Bug</a>
+  ·
+  <a href="https://github.com/b1tsized/gcp-dynamic-dns/issues">Request Feature</a>
+</p>
