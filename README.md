@@ -4,7 +4,7 @@
 [![Release](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/release.yml/badge.svg)](https://github.com/b1tsized/gcp-dynamic-dns/actions/workflows/release.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/b1tsized/gcp-dynamic-dns)](https://hub.docker.com/r/b1tsized/gcp-dynamic-dns)
 [![Docker Image Version](https://img.shields.io/docker/v/b1tsized/gcp-dynamic-dns?sort=semver)](https://hub.docker.com/r/b1tsized/gcp-dynamic-dns)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/b1tsized/gcp-dynamic-dns)](https://go.dev/)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/b1tsized/gcp-dynamic-dns?filename=src%2Fapp%2Fgo.mod)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.txt)
 
 > **Note**: This is an actively maintained fork of [luontola/gcp-dynamic-dns](https://github.com/luontola/gcp-dynamic-dns) with updated dependencies and modernized GCP SDK.
